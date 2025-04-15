@@ -2,13 +2,18 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createUser, getUserByEmail } from '../models/userModel.js';
 
-export const signup = async (req, res) => {
+export const adminSignup = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password, adminCode } = req.body;
 
-        // Validate input
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: 'All fields are required' });
+        // Validate input including admin code
+        if (!name || !email || !password || !adminCode) {
+            return res.status(400).json({ message: 'All fields are required including admin registration code' });
+        }
+
+        // Verify admin registration code
+        if (adminCode !== process.env.ADMIN_REGISTRATION_CODE) {
+            return res.status(403).json({ message: 'Invalid admin registration code' });
         }
 
         // Check if user already exists
@@ -17,18 +22,18 @@ export const signup = async (req, res) => {
             return res.status(409).json({ message: 'User already exists' });
         }
 
-        // Create new user (will have default role='donor')
-        const user = await createUser(name, email, password);
+        // Create new admin user
+        const user = await createUser(name, email, password, 'admin');
         
         // Generate JWT token with role
         const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role },
+            { userId: user.id, email: user.email, role: 'admin' },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
 
         res.status(201).json({
-            message: 'User created successfully',
+            message: 'Admin user created successfully',
             token,
             user: {
                 id: user.id,
@@ -38,12 +43,12 @@ export const signup = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Signup error:', error);
-        res.status(500).json({ message: 'Error creating user' });
+        console.error('Admin signup error:', error);
+        res.status(500).json({ message: 'Error creating admin user' });
     }
 };
 
-export const login = async (req, res) => {
+export const adminLogin = async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -56,6 +61,11 @@ export const login = async (req, res) => {
         const user = await getUserByEmail(email);
         if (!user) {
             return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        // Verify if user is an admin
+        if (user.role !== 'admin') {
+            return res.status(403).json({ message: 'Access denied: Admin privileges required' });
         }
 
         // Verify password
@@ -72,7 +82,7 @@ export const login = async (req, res) => {
         );
 
         res.json({
-            message: 'Login successful',
+            message: 'Admin login successful',
             token,
             user: {
                 id: user.id,
@@ -82,7 +92,7 @@ export const login = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({ message: 'Error during login' });
+        console.error('Admin login error:', error);
+        res.status(500).json({ message: 'Error during admin login' });
     }
 };

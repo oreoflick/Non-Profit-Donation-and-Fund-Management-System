@@ -1,88 +1,84 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createUser, getUserByEmail } from '../models/userModel.js';
+import { catchAsync, AppError } from '../middleware/errorMiddleware.js';
 
-export const signup = async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
+export const signup = catchAsync(async (req, res) => {
+    const { name, email, password } = req.body;
 
-        // Validate input
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: 'All fields are required' });
-        }
-
-        // Check if user already exists
-        const existingUser = await getUserByEmail(email);
-        if (existingUser) {
-            return res.status(409).json({ message: 'User already exists' });
-        }
-
-        // Create new user (will have default role='donor')
-        const user = await createUser(name, email, password);
-        
-        // Generate JWT token with role
-        const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        res.status(201).json({
-            message: 'User created successfully',
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
-    } catch (error) {
-        console.error('Signup error:', error);
-        res.status(500).json({ message: 'Error creating user' });
+    if (!name || !email || !password) {
+        throw new AppError('All fields are required', 400);
     }
-};
 
-export const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        // Validate input
-        if (!email || !password) {
-            return res.status(400).json({ message: 'Email and password are required' });
-        }
-
-        // Check if user exists
-        const user = await getUserByEmail(email);
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-
-        // Verify password
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        if (!isValidPassword) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-
-        // Generate JWT token with role
-        const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        res.json({
-            message: 'Login successful',
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
-    } catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({ message: 'Error during login' });
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        throw new AppError('Invalid email format', 400);
     }
-};
+
+    // Password strength validation
+    if (password.length < 8) {
+        throw new AppError('Password must be at least 8 characters long', 400);
+    }
+
+    const existingUser = await getUserByEmail(email);
+    if (existingUser) {
+        throw new AppError('User already exists', 409);
+    }
+
+    const user = await createUser(name, email, password);
+    
+    const token = jwt.sign(
+        { userId: user.id, email: user.email, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+    );
+
+    res.status(201).json({
+        status: 'success',
+        message: 'User created successfully',
+        token,
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role
+        }
+    });
+});
+
+export const login = catchAsync(async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        throw new AppError('Email and password are required', 400);
+    }
+
+    const user = await getUserByEmail(email);
+    if (!user) {
+        throw new AppError('Invalid credentials', 401);
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+        throw new AppError('Invalid credentials', 401);
+    }
+
+    const token = jwt.sign(
+        { userId: user.id, email: user.email, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+    );
+
+    res.json({
+        status: 'success',
+        message: 'Login successful',
+        token,
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role
+        }
+    });
+});

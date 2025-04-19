@@ -1,98 +1,96 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createUser, getUserByEmail } from '../models/userModel.js';
+import { catchAsync, AppError } from '../middleware/errorMiddleware.js';
 
-export const adminSignup = async (req, res) => {
-    try {
-        const { name, email, password, adminCode } = req.body;
+export const adminSignup = catchAsync(async (req, res) => {
+    const { name, email, password, adminCode } = req.body;
 
-        // Validate input including admin code
-        if (!name || !email || !password || !adminCode) {
-            return res.status(400).json({ message: 'All fields are required including admin registration code' });
-        }
-
-        // Verify admin registration code
-        if (adminCode !== process.env.ADMIN_REGISTRATION_CODE) {
-            return res.status(403).json({ message: 'Invalid admin registration code' });
-        }
-
-        // Check if user already exists
-        const existingUser = await getUserByEmail(email);
-        if (existingUser) {
-            return res.status(409).json({ message: 'User already exists' });
-        }
-
-        // Create new admin user
-        const user = await createUser(name, email, password, 'admin');
-        
-        // Generate JWT token with role
-        const token = jwt.sign(
-            { userId: user.id, email: user.email, role: 'admin' },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        res.status(201).json({
-            message: 'Admin user created successfully',
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
-    } catch (error) {
-        console.error('Admin signup error:', error);
-        res.status(500).json({ message: 'Error creating admin user' });
+    if (!name || !email || !password || !adminCode) {
+        throw new AppError('All fields are required including admin registration code', 400);
     }
-};
 
-export const adminLogin = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        // Validate input
-        if (!email || !password) {
-            return res.status(400).json({ message: 'Email and password are required' });
-        }
-
-        // Check if user exists
-        const user = await getUserByEmail(email);
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-
-        // Verify if user is an admin
-        if (user.role !== 'admin') {
-            return res.status(403).json({ message: 'Access denied: Admin privileges required' });
-        }
-
-        // Verify password
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        if (!isValidPassword) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-
-        // Generate JWT token with role
-        const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        res.json({
-            message: 'Admin login successful',
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
-    } catch (error) {
-        console.error('Admin login error:', error);
-        res.status(500).json({ message: 'Error during admin login' });
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        throw new AppError('Invalid email format', 400);
     }
-};
+
+    // Password strength validation
+    if (password.length < 8) {
+        throw new AppError('Password must be at least 8 characters long', 400);
+    }
+
+    if (!process.env.ADMIN_REGISTRATION_CODE) {
+        throw new AppError('Admin registration is not properly configured', 500);
+    }
+
+    if (adminCode !== process.env.ADMIN_REGISTRATION_CODE) {
+        throw new AppError('Invalid admin registration code', 403);
+    }
+
+    const existingUser = await getUserByEmail(email);
+    if (existingUser) {
+        throw new AppError('User already exists', 409);
+    }
+
+    const user = await createUser(name, email, password, 'admin');
+    
+    const token = jwt.sign(
+        { userId: user.id, email: user.email, role: 'admin' },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+    );
+
+    res.status(201).json({
+        status: 'success',
+        message: 'Admin user created successfully',
+        token,
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role
+        }
+    });
+});
+
+export const adminLogin = catchAsync(async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        throw new AppError('Email and password are required', 400);
+    }
+
+    const user = await getUserByEmail(email);
+    if (!user) {
+        throw new AppError('Invalid credentials', 401);
+    }
+
+    if (user.role !== 'admin') {
+        throw new AppError('Access denied: Admin privileges required', 403);
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+        throw new AppError('Invalid credentials', 401);
+    }
+
+    const token = jwt.sign(
+        { userId: user.id, email: user.email, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+    );
+
+    res.json({
+        status: 'success',
+        message: 'Admin login successful',
+        token,
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role
+        }
+    });
+});
